@@ -152,6 +152,8 @@ reduce_english_filter:
 pin_cand_filter:
   # 格式：编码<Tab>字词1<Space>字词2……
   - d	的
+  - gh ye 钢烨
+  - ye hv 烨辉
 
 
 # 主翻译器，拼音
