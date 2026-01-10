@@ -155,6 +155,9 @@ pin_cand_filter:
   - d	的
   - m	吗 嘛  # 置顶一个来覆盖 custom_phrase.txt 呒(ḿ) 呣(ḿ)
   - hm	后面   # 置顶一个来覆盖 custom_phrase.txt 噷(hm)
+  - gang ye	钢烨
+  - gang ye jin shu	钢烨金属
+  - ye hui	烨辉
 
 
 # 主翻译器，拼音
