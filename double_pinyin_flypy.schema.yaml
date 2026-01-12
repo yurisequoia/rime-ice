@@ -168,44 +168,7 @@ translator:
   comment_format:               # 标记拼音注释，供 corrector.lua 做判断用
     - xform/^/［/
     - xform/$/］/
-  preedit_format:               # preedit_format 影响到输入框的显示和“Shift+回车”上屏的字符
-    # - xform/(^|[ '])aa/$1a/
-    # - xform/(^|[ '])ee/$1e/
-    # - xform/(^|[ '])oo/$1o/
-    # - xform/([bpmfdtnljqx])n/$1iao/
-    # - xform/(\w)g/$1eng/
-    # - xform/(\w)q/$1iu/
-    # - xform/(\w)w/$1ei/
-    # - xform/([dtnlgkhjqxyvuirzcs])r/$1uan/
-    # - xform/(\w)t/$1ve/
-    # - xform/(\w)y/$1un/
-    # - xform/([dtnlgkhvuirzcs])o/$1uo/
-    # - xform/(\w)p/$1ie/
-    # - xform/([jqx])s/$1iong/
-    # - xform/(\w)s/$1ong/
-    # - xform/(\w)d/$1ai/
-    # - xform/(\w)f/$1en/
-    # - xform/(\w)h/$1ang/
-    # - xform/(\w)j/$1an/
-    # - xform/([gkhvuirzcs])k/$1uai/
-    # - xform/(\w)k/$1ing/
-    # - xform/([jqxnlb])l/$1iang/
-    # - xform/(\w)l/$1uang/
-    # - xform/(\w)z/$1ou/
-    # - xform/([gkhvuirzcs])x/$1ua/
-    # - xform/(\w)x/$1ia/
-    # - xform/(\w)c/$1ao/
-    # - xform/([dtgkhvuirzcs])v/$1ui/
-    # - xform/(\w)b/$1in/
-    # - xform/(\w)m/$1ian/
-    # - xform/([aoe])\1(\w)/$1$2/
-    # - "xform/(^|[ '])v/$1zh/"
-    # - "xform/(^|[ '])i/$1ch/"
-    # - "xform/(^|[ '])u/$1sh/"
-    # - xform/([jqxy])v/$1u/
-    # - xform/([nl])v/$1ü/
-    # - xform/ü/v/  # ü 显示为 v
-    # - xform/(?<=[A-Z])\s(?=[A-Z])//  # 消除大写字母之间的空格
+  preedit_format: []            # preedit_format 影响到输入框的显示和“Shift+回车”上屏的字符
   # dictionary_exclude: [肏屄, 鸡巴]  # 如有屏蔽 NSFW 词汇需求 librime >= 1.14.0 等价于从 .dict.yaml 中删除对应词条，但不影响组句和用户词库。
 
 
