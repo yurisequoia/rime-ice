@@ -48,7 +48,7 @@ global_ascii: false                        # 切换为 ascii 模式时，是否�
 # [style]
 # 字体；候选项、候选窗口的行为、布局及样式
 style:
-  color_scheme: google      # 默认配色方案
+  color_scheme: win11light      # 默认配色方案
   # color_scheme_dark: nord                # 深色模式下，Weasel 的配色方案，Windows 10 1809+ 可用
 
   # 全局字体
@@ -686,4 +686,26 @@ preset_color_schemes:
     hilited_candidate_back_color: 0xd8bf00
     comment_text_color: 0x808080
     hilited_comment_text_color: 0x444444
+  
+  win11light:
+    name: " Win11浅色 / Win11light"
+    text_color: 0x191919
+    label_color: 0x191919
+    hilited_label_color: 0x191919
+    back_color: 0xf9f9f9
+    border_color: 0x009e5a00
+    hilited_mark_color: 0xc06700
+    hilited_candidate_back_color: 0xf0f0f0
+    shadow_color: 0x20000000
+    
+  win11dark:
+    name: "Win11暗色 / Win11Dark"
+    text_color: 0xf9f9f9
+    label_color: 0xf9f9f9
+    back_color: 0x2C2C2C
+    hilited_label_color: 0xf9f9f9
+    border_color: 0x002C2C2C
+    hilited_mark_color: 0xFFC24C
+    hilited_candidate_back_color: 0x383838
+    shadow_color: 0x20000000
 # [End of <preset_color_schemes>]
