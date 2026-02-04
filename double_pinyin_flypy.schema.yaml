@@ -174,7 +174,7 @@ translator:
   comment_format:               # 标记拼音注释，供 corrector.lua 做判断用
     - xform/^/［/
     - xform/$/］/
-  preedit_format: []              # preedit_format 影响到输入框的显示和“Shift+回车”上屏的字符
+  preedit_format: []            # preedit_format 影响到输入框的显示和“Shift+回车”上屏的字符
   # dictionary_exclude: [肏屄, 鸡巴]  # 如有屏蔽 NSFW 词汇需求 librime >= 1.14.0 等价于从 .dict.yaml 中删除对应词条，但不影响组句和用户词库。
 
 
