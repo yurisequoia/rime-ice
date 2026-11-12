@@ -1,5 +1,5 @@
 # 雾凇拼音
-基于iDvel/rime-ice修改的自用配置，增加了自用的词典。感谢原项目、@outloudvi的meogirl词典。
+基于iDvel/rime-ice修改的自用配置，感谢来自[@gaboolic/rime-frost](https://github.com/gaboolic/rime-frost) 的词库、[@outloudvi](https://github.com/outloudvi/mw2fcitx)的萌娘词库。
 
 以下为原项目的鸣谢内容。
 
