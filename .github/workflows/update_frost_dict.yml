@@ -1,0 +1,53 @@
+name: Weekly Update frost dicts
+
+on:
+  schedule:
+    # 每周日北京时间 12:24（UTC 04:24）
+    - cron: '24 4 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: update-frost-dicts
+  cancel-in-progress: false
+
+jobs:
+  sync-and-commit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Test sync rules
+        run: python3 -I -B -X utf8 others/script/test_sync_frost.py
+
+      - name: Sync and validate frost dictionaries
+        run: python3 -I -B -X utf8 others/script/sync_frost.py
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add -- \
+            cn_dicts_frost/GB18030-2022.dict.yaml \
+            cn_dicts_frost/others.dict.yaml \
+            cn_dicts_frost/corrections.dict.yaml \
+            cn_dicts_frost/game.dict.yaml \
+            cn_dicts_frost/medication.dict.yaml \
+            cn_dicts_frost/place.dict.yaml
+
+          if git diff --cached --quiet; then
+            echo "No changes detected, skipping commit."
+            exit 0
+          fi
+
+          git commit -m "dict(cn): 每周更新霜冰补充词库" \
+            -m "来源：gaboolic/rime-frost 的 master 分支。" \
+          # 并发更新导致非快进时让任务失败；重新运行会从最新分支重新计算。
+          git push
