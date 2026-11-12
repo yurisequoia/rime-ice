@@ -8,14 +8,23 @@ import_tables:
   # 建议把扩展词库放到下面，有重复词条时，最上面的权重生效
   - cn_dicts/8105     # 字表
   - cn_dicts/41448  # 大字表（按需启用）（启用时和 8105 同时启用并放在 8105 下面）
+  - cn_dicts_frost/GB18030-2022
   - cn_dicts/base     # 基础词库
+  - cn_dicts_frost/base
   - cn_dicts/ext      # 扩展词库
-  - cn_dicts/tencent  # 腾讯词向量（大词库，部署时间较长）
+  - cn_dicts_frost/ext
+  # - cn_dicts/tencent  # 腾讯词向量（大词库，部署时间较长）
   - cn_dicts/others   # 一些杂项
+  - cn_dicts_frost/others
+  - cn_dicts_frost/corrections
 
   - cn_dicts_custom/custom
   - cn_dicts_custom/steel
   - cn_dicts_custom/moegirl
+
+  - cn_dicts_frost/game
+  - cn_dicts_frost/place
+  - cn_dicts_frost/medication
 
 ...
 
