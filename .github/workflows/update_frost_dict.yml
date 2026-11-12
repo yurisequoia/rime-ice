@@ -3,7 +3,7 @@ name: Weekly Update frost dicts
 on:
   schedule:
     # 每周日北京时间 12:24（UTC 04:24）
-    - cron: '24 4 * * 0'
+    - cron: "24 4 * * 0"
   workflow_dispatch:
 
 permissions:
@@ -40,8 +40,10 @@ jobs:
             cn_dicts_frost/corrections.dict.yaml \
             cn_dicts_frost/game.dict.yaml \
             cn_dicts_frost/medication.dict.yaml \
-            cn_dicts_frost/place.dict.yaml
-
+            cn_dicts_frost/place.dict.yaml \
+            cn_dicts_frost/base.dict.yaml \
+            cn_dicts_frost/ext.dict.yaml
+            
           if git diff --cached --quiet; then
             echo "No changes detected, skipping commit."
             exit 0

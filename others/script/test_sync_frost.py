@@ -56,15 +56,17 @@ class TransformTests(unittest.TestCase):
             "重复\tzhong fu\t0\t正确读音\r\n# 注释",
             columns=("text", "code", "weight", "comment"), newline="\r\n",
         )
-        result, stats = frost.transform_source(CORRECTIONS, data, {"重复"})
-        self.assertEqual(result, data)
-        self.assertFalse(stats["dedupe"])
-        result, stats = frost.transform_source(
-            CORRECTIONS, data, {"重复"}, frost.DEDUPE_FILES | {CORRECTIONS},
-        )
-        self.assertNotIn("重复".encode(), result)
-        self.assertIn("# 注释".encode(), result)
-        self.assertTrue(stats["dedupe"])
+        dedupe_files = frost.DEDUPE_FILES - {CORRECTIONS}
+        for enabled in (False, True):
+            configured = dedupe_files | {CORRECTIONS} if enabled else dedupe_files
+            with self.subTest(enabled=enabled), patch.object(frost, "DEDUPE_FILES", configured):
+                result, stats = frost.transform_source(CORRECTIONS, data, {"重复"})
+                self.assertEqual(stats["dedupe"], enabled)
+                if enabled:
+                    self.assertNotIn("重复".encode(), result)
+                    self.assertIn("# 注释".encode(), result)
+                else:
+                    self.assertEqual(result, data)
 
     def test_preserves_gb_fourth_column_and_line_endings(self):
         data = dictionary("字\tzi\t0\t# rime-moran\r\n新\txin\t0\t# Unihan", newline="\r\n")
@@ -116,22 +118,30 @@ class BaselineAndSyncTests(unittest.TestCase):
             # 不带 # +_+，兼容一列自动注音和两列显式注音。
             path.write_bytes(dictionary("已有\tyi you\n自动注音\n# 注释词\tzhu shi ci"))
 
-    def test_baseline_ignores_header_comments_and_disabled_tencent(self):
+    def test_baseline_ignores_header_comments_and_toggles_tencent(self):
         tencent = self.root / TENCENT
         tencent.write_bytes(dictionary("仅腾讯\t100"))
-        baseline = frost.load_baseline(self.root)
-        self.assertEqual(baseline, {"已有", "自动注音"})
+        baseline_files = tuple(path for path in frost.BASELINE_FILES if path != TENCENT)
         data = dictionary("仅腾讯\tjin teng xun\t100")
-        self.assertEqual(frost.transform_source(OTHERS, data, baseline)[0], data)
-        baseline = frost.load_baseline(self.root, (*frost.BASELINE_FILES, TENCENT))
-        result, stats = frost.transform_source(OTHERS, data, baseline)
-        self.assertEqual(stats["kept"], 0)
-        self.assertNotIn("仅腾讯".encode(), result)
+        for enabled in (False, True):
+            configured = (*baseline_files, TENCENT) if enabled else baseline_files
+            with self.subTest(enabled=enabled), patch.object(frost, "BASELINE_FILES", configured):
+                baseline = frost.load_baseline(self.root)
+                expected = {"已有", "自动注音", "仅腾讯"} if enabled else {"已有", "自动注音"}
+                self.assertEqual(baseline, expected)
+                result, stats = frost.transform_source(OTHERS, data, baseline)
+                if enabled:
+                    self.assertEqual(stats["kept"], 0)
+                    self.assertNotIn("仅腾讯".encode(), result)
+                else:
+                    self.assertEqual(result, data)
 
-    def test_commented_tencent_is_not_opened(self):
-        # 文件不存在也可同步，证明默认不会读取此路径。
-        self.assertFalse((self.root / TENCENT).exists())
-        self.assertEqual(frost.load_baseline(self.root), {"已有", "自动注音"})
+    def test_disabled_tencent_is_not_opened(self):
+        # 文件内容非法也不影响关闭状态，证明没有读取此路径。
+        (self.root / TENCENT).write_bytes(b"invalid dictionary")
+        baseline_files = tuple(path for path in frost.BASELINE_FILES if path != TENCENT)
+        with patch.object(frost, "BASELINE_FILES", baseline_files):
+            self.assertEqual(frost.load_baseline(self.root), {"已有", "自动注音"})
 
     def test_failure_in_last_download_or_validation_leaves_outputs_unchanged(self):
         output = self.root / "cn_dicts_frost"

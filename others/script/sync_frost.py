@@ -16,6 +16,8 @@ from urllib.request import Request, urlopen
 
 SOURCE_URL = "https://raw.githubusercontent.com/gaboolic/rime-frost/master/"
 SOURCE_FILES = (
+    "cn_dicts/base.dict.yaml",
+    "cn_dicts/ext.dict.yaml",
     "cn_dicts/GB18030-2022.dict.yaml",
     "cn_dicts/others.dict.yaml",
     "cn_dicts/corrections.dict.yaml",
@@ -40,6 +42,8 @@ BASELINE_FILES = (
 # 参与去重的源文件：取消 corrections 这一行的注释即可对它去重。
 # 不在此清单中的源文件仍会下载、校验并完整保留。
 DEDUPE_FILES = {
+    "cn_dicts/base.dict.yaml",
+    "cn_dicts/ext.dict.yaml",
     "cn_dicts/GB18030-2022.dict.yaml",
     "cn_dicts/others.dict.yaml",
     # "cn_dicts/corrections.dict.yaml",  # 取消注释后对 corrections 去重
