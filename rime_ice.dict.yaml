@@ -5,17 +5,17 @@
 name: rime_ice
 version: "2026-01-26"
 import_tables:
+  # 建议把扩展词库放到下面，有重复词条时，最上面的权重生效
   - cn_dicts/8105     # 字表
-  # - cn_dicts/41448  # 大字表（按需启用）（启用时和 8105 同时启用并放在 8105 下面）
+  - cn_dicts/41448  # 大字表（按需启用）（启用时和 8105 同时启用并放在 8105 下面）
   - cn_dicts/base     # 基础词库
   - cn_dicts/ext      # 扩展词库
   - cn_dicts/tencent  # 腾讯词向量（大词库，部署时间较长）
   - cn_dicts/others   # 一些杂项
 
-  # 建议把扩展词库放到下面，有重复词条时，最上面的权重生效
-  - cn_dicts/custom
-  - cn_dicts/steel
-  - cn_dicts/moegirl
+  - cn_dicts_custom/custom
+  - cn_dicts_custom/steel
+  - cn_dicts_custom/moegirl
 
 ...
 
@@ -66,14 +66,25 @@ Z	Z
 9	jiu
 
 # 示例：输入 sanDdayin 得到 3D打印
-M1
-M2
-M3
-M4
 3G
 4G
 5G
+3G网络
+4G网络
+5G网络
+3G流量
+4G流量
+5G流量
 2D
 3D
 4D
 3D打印
+2D电影
+3D电影
+4S店
+AE86
+M1
+M2
+M3
+M4
+M4A1
