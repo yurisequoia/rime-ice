@@ -95,12 +95,12 @@ engine:
 
 grammar:
   language: wanxiang-lts-zh-hans
-  collocation_max_length: 7
+  collocation_max_length: 6
   collocation_min_length: 2
-  collocation_penalty: -10
-  non_collocation_penalty: 3
-  weak_collocation_penalty: -35
-  rear_penalty: -12
+  collocation_penalty: -14
+  non_collocation_penalty: -6
+  weak_collocation_penalty: -100
+  rear_penalty: -18
 
 # Lua 配置: 日期、时间、星期、ISO 8601、时间戳的触发关键字
 date_translator:
@@ -181,7 +181,8 @@ translator:
     - xform/$/］/
   preedit_format: []            # preedit_format 影响到输入框的显示和“Shift+回车”上屏的字符
   # dictionary_exclude: [肏屄, 鸡巴]  # 如有屏蔽 NSFW 词汇需求 librime >= 1.14.0 等价于从 .dict.yaml 中删除对应词条，但不影响组句和用户词库。
-
+  contextual_suggestions: false
+  max_homophones: 8
 
 # 次翻译器，英文
 melt_eng:
