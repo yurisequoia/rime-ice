@@ -1,0 +1,43 @@
+name: Monthly Build Hybrid Grammar
+
+on:
+  schedule:
+    # 每月 2 日北京时间 12:30（UTC 04:30）
+    - cron: "30 4 2 * *"
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: "上游未更新时也强制重建并覆盖 gram Release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-hybrid-gram
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: false
+
+      - name: Build and publish hybrid grammar to gram release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          FORCE_REBUILD: ${{ inputs.force_rebuild || 'false' }}
+        run: uv run --no-project --python 3.12 others/script/build_hybrid_gram_ci.py

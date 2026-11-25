@@ -13,6 +13,10 @@ concurrency:
   group: update-frost-dicts
   cancel-in-progress: false
 
+env:
+  PYTHONUTF8: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
 jobs:
   sync-and-commit:
     runs-on: ubuntu-latest
@@ -23,11 +27,27 @@ jobs:
         with:
           ref: ${{ github.event.repository.default_branch }}
 
-      - name: Test sync rules
-        run: python3 -I -B -X utf8 others/script/test_sync_frost.py
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: false
+
+      - name: Test sync and cache rules
+        run: |
+          uv run --no-project --python 3.12 others/script/test_sync_frost.py
+          uv run --no-project --python 3.12 others/script/test_freq_cache.py
 
       - name: Sync and validate frost dictionaries
-        run: python3 -I -B -X utf8 others/script/sync_frost.py
+        run: uv run --no-project --python 3.12 others/script/sync_frost.py
+
+      - name: Apply calibrated frequency cache
+        run: |
+          uv run --no-project --python 3.12 others/script/apply_freq_cache.py \
+            cn_dicts_frost/game.dict.yaml \
+            cn_dicts_frost/medication.dict.yaml \
+            cn_dicts_frost/place.dict.yaml \
+            cn_dicts_frost/base.dict.yaml \
+            cn_dicts_frost/ext.dict.yaml
 
       - name: Commit and push if changed
         run: |
@@ -43,13 +63,13 @@ jobs:
             cn_dicts_frost/place.dict.yaml \
             cn_dicts_frost/base.dict.yaml \
             cn_dicts_frost/ext.dict.yaml
-            
+
           if git diff --cached --quiet; then
             echo "No changes detected, skipping commit."
             exit 0
           fi
 
-          git commit -m "dict(cn): 每周更新霜冰补充词库" \
-            -m "来源：gaboolic/rime-frost 的 master 分支。" \
+          git commit -m "dict(cn): 每周更新霜冰补充词库并回填校准词频" \
+            -m "来源：gaboolic/rime-frost 的 master 分支。"
           # 并发更新导致非快进时让任务失败；重新运行会从最新分支重新计算。
           git push

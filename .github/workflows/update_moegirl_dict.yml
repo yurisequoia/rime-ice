@@ -4,10 +4,18 @@ on:
   schedule:
     - cron: '24 12 16 * *'
       timezone: "Asia/Shanghai"
-  workflow_dispatch: 
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: update-moegirl-dict
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
 
 jobs:
   download-and-commit:
@@ -17,21 +25,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Download file
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: false
+
+      - name: Test frequency cache rules
+        run: uv run --no-project --python 3.12 others/script/test_freq_cache.py
+
+      - name: Download moegirl dict
         run: |
           curl -L --fail \
             -o cn_dicts_custom/moegirl.dict.yaml \
             "https://github.com/outloudvi/mw2fcitx/releases/latest/download/moegirl.dict.yaml"
+
+      - name: Apply calibrated frequency cache
+        run: uv run --no-project --python 3.12 others/script/apply_freq_cache.py cn_dicts_custom/moegirl.dict.yaml
 
       - name: Commit and push if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if git status --porcelain | grep .; then
-            git add cn_dicts_custom/moegirl.dict.yaml
-            git commit -m "chore: monthly update $(date +'%Y-%m-%d')"
-            git push
-          else
+          git add -- cn_dicts_custom/moegirl.dict.yaml
+
+          if git diff --cached --quiet; then
             echo "No changes detected, skipping commit."
+            exit 0
           fi
+
+          git commit -m "dict(cn): 每月更新萌娘百科词库并回填校准词频"
+          git push
