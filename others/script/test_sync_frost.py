@@ -7,6 +7,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+sys.dont_write_bytecode = True
+
 # -I 不把脚本目录加入 sys.path；只从明确的本地路径加载被测模块。
 spec = importlib.util.spec_from_file_location("sync_frost", Path(__file__).with_name("sync_frost.py"))
 frost = importlib.util.module_from_spec(spec)

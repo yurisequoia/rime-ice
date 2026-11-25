@@ -22,3 +22,6 @@ rime_console
 rime_deployer
 rime_patch
 wanxiang-lts-zh-hans.gram
+wanxiang-qwen14b-zh-hans.gram
+__pycache__/
+*.pyc
