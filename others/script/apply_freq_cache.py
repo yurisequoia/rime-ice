@@ -94,20 +94,26 @@ def apply_cache_to_dict(
     fallback_p25: int,
     *,
     dry_run: bool = False,
+    require_entries: bool = False,
 ) -> tuple[ApplyStats, set[str]]:
     """对单个 .dict.yaml 回填校准权重，保留原有换行符、BOM、头部及注释。"""
     raw_bytes = filepath.read_bytes()
     lines = raw_bytes.splitlines(keepends=True)
     out_lines: list[bytes] = []
-    in_body = False
+    header_started = in_body = False
     rows = hit = kept_positive = fallback = 0
     unscored_words: set[str] = set()
 
     for raw_line in lines:
         if not in_body:
             out_lines.append(raw_line)
-            if raw_line.decode("utf-8-sig").strip() == "...":
+            header_line = raw_line.decode("utf-8-sig").strip()
+            if header_line == "---":
+                header_started = True
+            elif header_started and header_line == "...":
                 in_body = True
+            elif not header_started and header_line and not header_line.startswith("#"):
+                raise ValueError(f"{rel_path}: 缺少 Rime 词库头起始标记（---）")
             continue
 
         body_bytes, ending = _split_line_ending(raw_line)
@@ -150,6 +156,11 @@ def apply_cache_to_dict(
             new_fields[2] = new_weight
         out_lines.append(("\t".join(new_fields)).encode("utf-8") + ending)
 
+    if not in_body:
+        raise ValueError(f"{rel_path}: 缺少完整的 Rime 词库头（--- / ...）")
+    if require_entries and rows == 0:
+        raise ValueError(f"{rel_path}: 词库正文没有可回填的词条")
+
     new_bytes = b"".join(out_lines)
     changed = new_bytes != raw_bytes
     if changed and not dry_run:
@@ -171,6 +182,7 @@ def apply_cache_to_targets(
     targets: list[str] | tuple[str, ...] | None = None,
     *,
     dry_run: bool = False,
+    require_entries: bool = False,
 ) -> tuple[list[ApplyStats], set[str], int]:
     """批量对目标词库回填静态缓存词频。"""
     cache, fallback_p25 = load_freq_cache(cache_path)
@@ -189,7 +201,8 @@ def apply_cache_to_targets(
         if not abs_path.is_file():
             raise FileNotFoundError(f"找不到目标词库文件: {abs_path}")
         st, unscored = apply_cache_to_dict(
-            abs_path, rel_label, cache, fallback_p25, dry_run=dry_run
+            abs_path, rel_label, cache, fallback_p25,
+            dry_run=dry_run, require_entries=require_entries,
         )
         stats_list.append(st)
         all_unscored.update(unscored)
@@ -247,13 +260,19 @@ def main() -> int:
         action="store_true",
         help="仅统计并检查，不写入修改文件",
     )
+    parser.add_argument(
+        "--require-entries",
+        action="store_true",
+        help="目标词库没有可回填的词条时退出失败",
+    )
     args = parser.parse_args()
 
     rime_path = args.rime_path.resolve()
     cache_path = args.cache if args.cache.is_absolute() else (rime_path / args.cache)
     cache, _ = load_freq_cache(cache_path)
     stats_list, all_unscored, fallback_p25 = apply_cache_to_targets(
-        rime_path, cache_path, args.targets, dry_run=args.dry_run
+        rime_path, cache_path, args.targets,
+        dry_run=args.dry_run, require_entries=args.require_entries,
     )
     report = format_report(stats_list, len(all_unscored), fallback_p25, len(cache))
     print(report, end="")

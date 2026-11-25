@@ -36,6 +36,9 @@ jobs:
         with:
           enable-cache: false
 
+      - name: Test hybrid grammar release handling
+        run: uv run --no-project --python 3.12 others/script/test_build_hybrid_gram_ci.py
+
       - name: Build and publish hybrid grammar to gram release
         env:
           GH_TOKEN: ${{ github.token }}

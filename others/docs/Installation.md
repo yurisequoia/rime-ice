@@ -130,11 +130,19 @@ bash rime-install iDvel/rime-ice:others/recipes/config:schema=double_pinyin_jiaj
 
 </details>
 
-<details><summary>℞ 添加语法模型（万象语法模型）（首次安装后执行，后续更新不需要执行）</summary>
+<details><summary>℞ 添加语法模型</summary>
+
+本仓库的全拼和小鹤双拼方案使用万象与 Qwen14B 融合模型。在本仓库目录运行更新脚本，将模型放到 Rime 用户目录。
 
 ```bash
-bash rime-install iDvel/rime-ice:others/recipes/grammar:schema=rime_ice
-bash rime-install iDvel/rime-ice:others/recipes/grammar:schema=double_pinyin_flypy
+uv run others/script/update_gram.py
+```
+
+首次安装时可加 `--no-deploy`，下载后在输入法菜单手动部署。用 `--rime-dir` 指定备用目录时也要加 `--no-deploy`。如果曾安装下方上游配方，请检查 `rime_ice.custom.yaml` 或 `double_pinyin_flypy.custom.yaml`。去掉其中覆盖 `grammar/language` 的旧模型设置，保留其他自定义项。
+
+其他双拼方案可以继续使用上游万象语法模型配方。
+
+```bash
 bash rime-install iDvel/rime-ice:others/recipes/grammar:schema=double_pinyin
 bash rime-install iDvel/rime-ice:others/recipes/grammar:schema=double_pinyin_mspy
 bash rime-install iDvel/rime-ice:others/recipes/grammar:schema=double_pinyin_sogou

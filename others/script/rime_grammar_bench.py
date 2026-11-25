@@ -17,7 +17,6 @@ import sys
 import time
 
 SCHEMA = "double_pinyin_flypy"
-MODEL = "wanxiang-lts-zh-hans"
 Int, Text, Pointer, Session = C.c_int, C.c_char_p, C.c_void_p, C.c_size_t
 
 
@@ -104,6 +103,10 @@ class Rime:
                 actual = self.config_cstring(C.byref(config), key.encode())
                 if actual != expected.encode():
                     raise RuntimeError(f"测试补丁未生效：{key} 读到 {actual!r}，预期 {expected!r}")
+            language = self.config_cstring(C.byref(config), b"grammar/language")
+            if not language:
+                raise RuntimeError("测试方案没有配置 grammar/language")
+            return language.decode("utf-8")
         finally:
             self.config_close(C.byref(config))
 
@@ -170,7 +173,12 @@ def run_case(api, source, opencc, out, name, settings, pairs, setup):
         if not api.deploy_config(f"{SCHEMA}.schema.yaml".encode(), b"schema/version"):
             raise RuntimeError("无法部署测试配置")
         api.initialize(C.byref(traits))
-        api.check_patch(settings)
+        model = api.check_patch(settings)
+        model_file = source / f"{model}.gram"
+        if not model_file.is_file():
+            raise FileNotFoundError(f"找不到模型：{model_file}")
+        if setup:
+            print(f"语法模型：{model}", flush=True)
         session = api.create_session()
         if not session or not api.select_schema(session, SCHEMA.encode()):
             raise RuntimeError("无法选用小鹤双拼测试方案")
@@ -202,6 +210,7 @@ def main():
     parser.add_argument("--penalties", action="store_true",
                         help="固定一个 --homophones，额外对照 12 组搭配与回退参数")
     parser.add_argument("--dll", type=Path, help="手动指定小狼毫 rime.dll")
+    parser.add_argument("--model", help="指定用于对照的模型名（默认读取测试方案的 grammar/language）")
     args = parser.parse_args()
     if any(not 1 <= n <= 100 for n in args.homophones):
         parser.error("--homophones 需要在 1 到 100 之间")
@@ -209,8 +218,6 @@ def main():
         parser.error("--penalties 需要指定一个 --homophones 数值，例如 8")
 
     source = Path(os.environ["APPDATA"]) / "Rime"
-    if not (source / f"{MODEL}.gram").is_file():
-        raise FileNotFoundError(f"找不到模型：{source / (MODEL + '.gram')}")
     for artifact in (f"{SCHEMA}.schema.yaml", f"{SCHEMA}.prism.bin", "rime_ice.table.bin"):
         if not (source / "build" / artifact).is_file():
             raise FileNotFoundError(f"找不到部署文件 {artifact}，请先在小狼毫里重新部署。")
@@ -245,8 +252,9 @@ def main():
     controls = {
         "translator/enable_user_dict": "false",
         "translator/contextual_suggestions": "false",
-        "grammar/language": MODEL,
     }
+    if args.model:
+        controls["grammar/language"] = args.model
     api = Rime(dll_path.resolve())
     opencc = dll_path.resolve().parent / 'data' / 'opencc'
     print(f"librime {api.version().decode()} · 小鹤双拼 · {len(pairs)} 条样本", flush=True)

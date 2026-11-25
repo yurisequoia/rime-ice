@@ -20,6 +20,7 @@ from pathlib import Path
 import platform
 import re
 import shutil
+import stat
 import struct
 import subprocess
 import tempfile
@@ -323,7 +324,7 @@ def fetch_release_info(
                 manifest_url, {"User-Agent": "rime-ice-update-gram/1.0"}
             )
             manifest = json.loads(manifest_bytes.decode("utf-8"))
-            sha_val = manifest.get("sha256")
+            sha_val = manifest.get("sha256") if manifest.get("output") == gram_name else None
             if isinstance(sha_val, str) and re.fullmatch(
                 r"[0-9a-fA-F]{64}", sha_val.strip()
             ):
@@ -418,7 +419,7 @@ def _read_installation_fields(rime_dir: Path | None) -> dict[str, str]:
     if not inst.is_file():
         return {}
     try:
-        text = inst.read_text(encoding="utf-8", errors="replace")
+        text = inst.read_text(encoding="utf-8-sig", errors="replace")
     except OSError:
         return {}
 
@@ -552,6 +553,7 @@ def sync_user_data_windows(
         )
 
     print("正在同步小狼毫用户词库 (WeaselDeployer.exe /sync)...")
+    baseline = _local_sync_snapshots(rime_dir)
     proc = subprocess.run(
         [deployer, "/sync"],
         cwd=str(resolved_weasel) if resolved_weasel else None,
@@ -563,13 +565,13 @@ def sync_user_data_windows(
             f"用户词库同步失败 (WeaselDeployer.exe /sync 返回退出码 {proc.returncode})，"
             "已中止后续替换与重新部署以保护用户词库。"
         )
+    _require_updated_snapshots(baseline)
 
 
 def _run_weasel_deploy(weasel_dir: Path | None) -> None:
     deployer = _resolve_weasel_deployer(weasel_dir)
     if not deployer:
-        print("提示: 未找到 WeaselDeployer.exe，请在托盘右键手动点击「重新部署」。")
-        return
+        raise RuntimeError("未找到 WeaselDeployer.exe，请确认小狼毫已正确安装。")
     proc = subprocess.run(
         [deployer, "/deploy"],
         cwd=str(weasel_dir) if weasel_dir else None,
@@ -577,101 +579,78 @@ def _run_weasel_deploy(weasel_dir: Path | None) -> None:
         timeout=60,
     )
     if proc.returncode != 0:
-        print(
-            f"警告: WeaselDeployer.exe /deploy 返回非零退出码 ({proc.returncode})，"
-            "如未生效请手动点击「重新部署」。"
+        raise RuntimeError(
+            f"WeaselDeployer.exe /deploy 返回退出码 {proc.returncode}。"
         )
 
 
-def _safe_mtime_ns(path: Path) -> int:
+def _snapshot_state(path: Path) -> tuple[int, int]:
     try:
-        return path.stat().st_mtime_ns
-    except OSError:
-        return 0
+        metadata = path.stat()
+    except FileNotFoundError:
+        return 0, 0
+    if not stat.S_ISREG(metadata.st_mode):
+        raise RuntimeError(f"用户词库快照不是普通文件: {path}")
+    return metadata.st_mtime_ns, metadata.st_size
 
 
-def _scan_dir_max_mtime_ns(directory: Path, max_entries: int = 200) -> int:
-    latest = _safe_mtime_ns(directory)
-    if not directory.is_dir():
-        return latest
+def _local_sync_snapshots(rime_dir: Path) -> dict[Path, tuple[int, int]]:
+    """记录本机各用户词库的导出快照，避免其他设备或配置文件写入误判。"""
     try:
-        entries = directory.iterdir()
-        for count, child in enumerate(entries):
-            if count >= max_entries:
-                break
-            mtime = _safe_mtime_ns(child)
-            if mtime > latest:
-                latest = mtime
-    except OSError:
-        pass
-    return latest
-
-
-def _resolve_sync_target_dirs(rime_dir: Path) -> tuple[Path, Path | None]:
+        databases = [path.name for path in rime_dir.iterdir() if path.suffix == ".userdb"]
+    except FileNotFoundError:
+        return {}
+    if not databases:
+        return {}
     fields = _read_installation_fields(rime_dir)
-    raw_sync = fields.get("sync_dir")
-    if raw_sync:
-        expanded = os.path.expandvars(raw_sync)
-        sync_base = Path(expanded).expanduser()
-        if not sync_base.is_absolute():
-            sync_base = rime_dir / sync_base
-    else:
-        sync_base = rime_dir / "sync"
-
     install_id = fields.get("installation_id")
-    sync_target = (sync_base / install_id) if install_id else None
-    return sync_base, sync_target
+    if not install_id:
+        raise RuntimeError("无法定位本机词库快照。请先手动同步，确认安装 ID 后重试。")
+    sync_base = Path(os.path.expandvars(fields.get("sync_dir", "sync"))).expanduser()
+    sync_target = rime_dir / sync_base / install_id
+    snapshots = (sync_target / (name + ".txt") for name in databases)
+    return {path: _snapshot_state(path) for path in snapshots}
 
 
-def _latest_sync_mtime_ns(rime_dir: Path) -> int:
-    latest = _safe_mtime_ns(rime_dir / "installation.yaml")
-    if not rime_dir.is_dir():
-        return latest
-
-    try:
-        for child in rime_dir.iterdir():
-            if child.name.endswith(".userdb") and child.is_dir():
-                latest = max(latest, _scan_dir_max_mtime_ns(child))
-    except OSError:
-        pass
-
-    sync_base, sync_target = _resolve_sync_target_dirs(rime_dir)
-    latest = max(latest, _scan_dir_max_mtime_ns(sync_base))
-    if sync_target is not None:
-        latest = max(latest, _scan_dir_max_mtime_ns(sync_target))
-    return latest
+def _require_updated_snapshots(baseline: dict[Path, tuple[int, int]]) -> None:
+    for path, previous in baseline.items():
+        current = _snapshot_state(path)
+        if current == previous or current[1] == 0:
+            raise RuntimeError(
+                f"未确认用户词库 {path.name} 的快照已写出。"
+                "请检查同步目录或手动同步后使用 --no-sync。"
+            )
 
 
 def wait_for_squirrel_sync(
-    rime_dir: Path,
-    baseline_mtime_ns: int,
+    baseline: dict[Path, tuple[int, int]],
     *,
-    start_timeout: float = 3.0,
     quiet_period: float = 1.2,
     max_wait: float = 30.0,
     poll_interval: float = 0.2,
 ) -> None:
-    """轮询等待 Squirrel --sync 后台完成落盘并稳定，避免紧随 --reload 被维护模式丢弃。"""
+    """等待每张本机词库的快照均有更新，且写入已稳定。"""
+    if not baseline:
+        return
     start = time.monotonic()
-    latest = baseline_mtime_ns
-    last_change_at: float | None = None
+    latest = baseline
+    last_change_at = start
 
     while True:
         now = time.monotonic()
-        current = _latest_sync_mtime_ns(rime_dir)
-        if current > latest:
+        current = {path: _snapshot_state(path) for path in baseline}
+        if current != latest:
             latest = current
             last_change_at = now
 
-        if last_change_at is not None:
-            if now - last_change_at >= quiet_period:
-                return
-        elif now - start >= start_timeout:
+        if now - last_change_at >= quiet_period and all(
+            state != baseline[path] and state[1] > 0 for path, state in current.items()
+        ):
             return
 
         if now - start >= max_wait:
-            print("提示: 等待鼠须管用户词库同步完成已达超时上限，将继续执行替换与重载。")
-            return
+            _require_updated_snapshots(baseline)
+            raise RuntimeError("用户词库快照写入超时，尚未稳定。")
 
         time.sleep(poll_interval)
 
@@ -689,7 +668,10 @@ def sync_user_data_posix(
                 "未找到 Squirrel 可执行文件，无法在重载前同步用户词库；"
                 "请手动同步后重试，或使用 --no-sync / --no-deploy。"
             )
-        baseline = _latest_sync_mtime_ns(rime_dir)
+        baseline = _local_sync_snapshots(rime_dir)
+        if not baseline:
+            print("当前目录没有需要同步的用户词库。")
+            return
         print("正在同步鼠须管用户词库 (Squirrel --sync)...")
         proc = subprocess.run([str(SQUIRREL_BIN), "--sync"], check=False, timeout=60)
         if proc.returncode != 0:
@@ -697,7 +679,7 @@ def sync_user_data_posix(
                 f"用户词库同步失败 (Squirrel --sync 返回退出码 {proc.returncode})，"
                 "已中止后续替换与重新加载。"
             )
-        wait_for_squirrel_sync(rime_dir, baseline)
+        wait_for_squirrel_sync(baseline)
         return
 
     gdbus = shutil.which("gdbus")
@@ -749,7 +731,7 @@ def replace_gram_windows(
         try:
             os.replace(tmp_path, target_path)
         except OSError as exc:
-            if not _is_lock_error(exc):
+            if not deploy or not _is_lock_error(exc):
                 raise
 
             print(
@@ -823,28 +805,38 @@ def replace_gram_posix(
     if not deploy:
         return
 
+    _run_posix_deploy(plat)
+
+
+def _run_posix_deploy(plat: str) -> None:
     if plat == "Darwin":
-        if SQUIRREL_BIN.exists():
-            print("正在触发鼠须管（Squirrel --reload）重新加载...")
-            proc = subprocess.run([str(SQUIRREL_BIN), "--reload"], check=False, timeout=60)
-            if proc.returncode != 0:
-                print(
-                    f"警告: Squirrel --reload 返回非零退出码 ({proc.returncode})，"
-                    "请在菜单栏手动点击「重新部署」。"
-                )
-        else:
-            print("提示: 未找到 Squirrel 可执行文件，请在菜单栏手动点击「重新部署」。")
+        if not SQUIRREL_BIN.exists():
+            raise RuntimeError("未找到 Squirrel 可执行文件，请确认鼠须管已正确安装。")
+        print("正在触发鼠须管（Squirrel --reload）重新加载...")
+        subprocess.run([str(SQUIRREL_BIN), "--reload"], check=True, timeout=60)
         return
 
     fcitx5_remote = shutil.which("fcitx5-remote")
     if fcitx5_remote:
-        subprocess.run([fcitx5_remote, "-r"], check=False, timeout=30)
+        subprocess.run([fcitx5_remote, "-r"], check=True, timeout=30)
         return
     ibus = shutil.which("ibus")
     if ibus:
-        subprocess.run([ibus, "restart"], check=False, timeout=30)
+        subprocess.run([ibus, "restart"], check=True, timeout=30)
         return
-    print("提示: 已完成文件替换，请手动触发 Rime 重新部署。")
+    raise RuntimeError("未找到 Rime 前端的重载命令，请手动重新部署。")
+
+
+def _retry_deployment(rime_dir: Path, plat: str, sync: bool) -> None:
+    if plat == "Windows":
+        weasel_dir = find_weasel_dir(rime_dir)
+        if sync:
+            sync_user_data_windows(rime_dir, weasel_dir)
+        _run_weasel_deploy(weasel_dir)
+    else:
+        if sync:
+            sync_user_data_posix(rime_dir, platform_name=plat)
+        _run_posix_deploy(plat)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -880,7 +872,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--no-deploy",
         action="store_true",
-        help="替换文件后不自动触发重新部署（同时跳过部署前用户词库同步）。",
+        help="只替换文件，不同步、停止前端或重新部署。",
     )
     parser.add_argument(
         "--no-sync",
@@ -892,9 +884,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
-    rime_dir = resolve_rime_dir(args.rime_dir)
+    plat = platform.system()
+    rime_dir = resolve_rime_dir(args.rime_dir, platform_name=plat)
+    deploy = not args.no_deploy
+    sync = not args.no_sync
+    if deploy and args.rime_dir is not None:
+        active_dir = resolve_rime_dir(platform_name=plat)
+        if rime_dir.resolve() != active_dir.resolve():
+            print(f"[错误] 前端使用 {active_dir}。更新其他目录时请加 --no-deploy。", file=sys.stderr)
+            return 1
     repo = args.repo or detect_github_repo(rime_dir, default=DEFAULT_REPO)
     target_path = rime_dir / args.gram_name
+    pending_deploy = target_path.with_name(target_path.name + ".pending-deploy")
     expected_lang = Path(args.gram_name).stem
 
     print(f"目标 Rime 目录: {rime_dir}")
@@ -923,9 +924,22 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     remote_sha256 = release.get("sha256")
-    if isinstance(remote_sha256, str) and target_path.is_file() and not args.force:
+    if not isinstance(remote_sha256, str) or not re.fullmatch(r"[0-9a-f]{64}", remote_sha256):
+        print("[错误] Release 缺少目标模型的 SHA-256，已中止更新。", file=sys.stderr)
+        return 1
+    if target_path.is_file() and not args.force:
         local_sha256 = sha256_file(target_path)
         if local_sha256 == remote_sha256:
+            if deploy and pending_deploy.is_file():
+                print("模型文件已是最新，正在重试重新部署...")
+                try:
+                    _retry_deployment(rime_dir, plat, sync)
+                    pending_deploy.unlink(missing_ok=True)
+                except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+                    print(f"[错误] 重新部署失败: {exc}", file=sys.stderr)
+                    return 1
+                print("已发出重新部署请求。")
+                return 0
             print(
                 f"本地语法模型已是最新 (SHA-256: {local_sha256[:16]}...)，无需下载。"
                 "如需强制覆盖请添加 --force。"
@@ -951,7 +965,7 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         actual_sha256 = sha256_file(staged_path)
-        if isinstance(remote_sha256, str) and actual_sha256 != remote_sha256:
+        if actual_sha256 != remote_sha256:
             print(
                 "\n[错误] SHA-256 校验失败，已中止替换以保护本地模型：\n"
                 f"  预期: {remote_sha256}\n"
@@ -966,10 +980,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"\n[错误] .gram 文件格式校验失败: {exc}", file=sys.stderr)
             return 1
 
-        plat = platform.system()
-        deploy = not args.no_deploy
-        sync = not args.no_sync
         try:
+            if deploy:
+                rime_dir.mkdir(parents=True, exist_ok=True)
+                pending_deploy.touch()
             if plat == "Windows":
                 restarted = replace_gram_windows(
                     staged_path,
@@ -991,16 +1005,18 @@ def main(argv: list[str] | None = None) -> int:
                     sync=sync,
                 )
                 service_msg = "POSIX 原子替换完成"
-        except RuntimeError as exc:
+            if deploy:
+                pending_deploy.unlink(missing_ok=True)
+        except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
             print(f"\n[错误] {exc}", file=sys.stderr)
             return 1
 
     if not deploy:
         deploy_msg = "已跳过 (--no-deploy)"
     elif sync:
-        deploy_msg = "已同步用户词库并触发重新部署"
+        deploy_msg = "已处理用户词库同步并发出重新部署请求"
     else:
-        deploy_msg = "已跳过词库同步并触发重新部署 (--no-sync)"
+        deploy_msg = "已跳过词库同步并发出重新部署请求 (--no-sync)"
 
     print("\n更新完成:")
     print(f"  文件路径        : {target_path}")

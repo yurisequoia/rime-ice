@@ -143,7 +143,7 @@ class UpdateGramTests(unittest.TestCase):
                 mock.patch.object(sys, "stderr", stderr_buf),
             ):
                 rc = update_gram.main(
-                    ["--rime-dir", str(rime_dir), "--repo", "yurisequoia/rime-ice"]
+                    ["--rime-dir", str(rime_dir), "--repo", "yurisequoia/rime-ice", "--no-deploy"]
                 )
             self.assertEqual(rc, 1)
             self.assertIn("Monthly Build Hybrid Grammar", stderr_buf.getvalue())
@@ -279,6 +279,7 @@ class UpdateGramTests(unittest.TestCase):
                     side_effect=lambda _u, dest: dest.write_bytes(new_bytes),
                 ),
                 mock.patch.object(update_gram.platform, "system", return_value="Windows"),
+                mock.patch.object(update_gram, "_read_windows_weasel_user_dir", return_value=rime_dir),
                 mock.patch.object(
                     update_gram, "find_weasel_dir", return_value=weasel_dir
                 ),
@@ -339,6 +340,7 @@ class UpdateGramTests(unittest.TestCase):
                     side_effect=lambda _u, dest: dest.write_bytes(remote_bytes),
                 ),
                 mock.patch.object(update_gram.platform, "system", return_value="Windows"),
+                mock.patch.object(update_gram, "_read_windows_weasel_user_dir", return_value=rime_dir),
                 mock.patch.object(
                     update_gram, "find_weasel_dir", return_value=weasel_dir
                 ),
@@ -380,6 +382,8 @@ class UpdateGramTests(unittest.TestCase):
             rime_dir.mkdir()
             fake_squirrel = root / "Squirrel"
             fake_squirrel.write_bytes(b"#!/bin/sh\n")
+            (rime_dir / "rime_ice.userdb").mkdir()
+            (rime_dir / "installation.yaml").write_text("installation_id: local\n", encoding="utf-8")
 
             target = rime_dir / "wanxiang-qwen14b-zh-hans.gram"
             old_bytes = _make_fake_gram(target, units=5, payload_fill=b"OLD!")
@@ -402,7 +406,7 @@ class UpdateGramTests(unittest.TestCase):
                 events.append(f"run:{' '.join(call[1:])}")
                 return subprocess.CompletedProcess(cmd, 0)
 
-            def fake_wait(_rime_dir: Path, _baseline: int) -> None:
+            def fake_wait(_baseline) -> None:
                 events.append("wait_sync")
 
             with (
@@ -429,7 +433,7 @@ class UpdateGramTests(unittest.TestCase):
             src_tmp, dst_path = replace_calls[0]
             self.assertEqual(src_tmp.parent, target.parent)
             self.assertEqual(dst_path, target)
-            self.assertEqual([p.name for p in rime_dir.iterdir()], [target.name])
+            self.assertEqual(list(rime_dir.glob(f".{target.name}.tmp.*")), [])
             self.assertEqual(target.read_bytes(), new_bytes)
             self.assertEqual(
                 run_calls,
@@ -455,8 +459,11 @@ class UpdateGramTests(unittest.TestCase):
             )
             userdb_txt = snapshot_dir / "rime_ice.userdb.txt"
             userdb_txt.write_text("# header\n", encoding="utf-8")
+            (rime_dir / "rime_ice.userdb").mkdir()
+            (rime_dir / "second.userdb").mkdir()
+            second_snapshot = snapshot_dir / "second.userdb.txt"
 
-            baseline = update_gram._latest_sync_mtime_ns(rime_dir)
+            baseline = update_gram._local_sync_snapshots(rime_dir)
             fake_clock = [0.0]
             polls = 0
 
@@ -467,27 +474,24 @@ class UpdateGramTests(unittest.TestCase):
                 nonlocal polls
                 polls += 1
                 fake_clock[0] += dt
-                # 在第二次轮询时模拟后台同步写出用户词库快照文件
                 if polls == 2:
-                    bumped = baseline + 1_000_000_000
+                    bumped = baseline[userdb_txt][0] + 1_000_000_000
                     os.utime(userdb_txt, ns=(bumped, bumped))
+                if polls == 9:
+                    second_snapshot.write_text("# sync\n", encoding="utf-8")
 
             with (
                 mock.patch.object(update_gram.time, "monotonic", side_effect=fake_monotonic),
                 mock.patch.object(update_gram.time, "sleep", side_effect=fake_sleep),
             ):
                 update_gram.wait_for_squirrel_sync(
-                    rime_dir,
                     baseline,
-                    start_timeout=2.0,
                     quiet_period=0.5,
                     max_wait=10.0,
                     poll_interval=0.1,
                 )
 
-            # 0.2s 检测到写入，随后至少静默 0.5s 才返回（总耗时约 0.7s+）
-            self.assertGreaterEqual(polls, 7)
-            self.assertGreaterEqual(fake_clock[0], 0.7)
+            self.assertGreaterEqual(polls, 14)
 
     def test_detect_github_repo_and_schema_language_warning(self) -> None:
         self.assertEqual(
@@ -513,6 +517,87 @@ class UpdateGramTests(unittest.TestCase):
             )
             self.assertEqual(len(warnings), 1)
             self.assertIn("wanxiang-lts-zh-hans", warnings[0])
+
+    def test_sync_blocks_if_frontend_reports_success_without_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rime_dir = Path(tmp)
+            (rime_dir / "rime_ice.userdb").mkdir()
+            (rime_dir / "installation.yaml").write_text("installation_id: local\n", encoding="utf-8")
+            (rime_dir / "WeaselDeployer.exe").touch()
+            with mock.patch.object(
+                update_gram.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)
+            ):
+                with self.assertRaisesRegex(RuntimeError, "未确认用户词库"):
+                    update_gram.sync_user_data_windows(rime_dir, rime_dir)
+            baseline = update_gram._local_sync_snapshots(rime_dir)
+            with mock.patch.object(update_gram.time, "monotonic", side_effect=[0.0, 31.0]):
+                with self.assertRaisesRegex(RuntimeError, "未确认用户词库"):
+                    update_gram.wait_for_squirrel_sync(baseline)
+
+    def test_no_deploy_leaves_frontend_running_when_file_is_locked(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rime_dir = Path(tmp)
+            target = rime_dir / update_gram.DEFAULT_GRAM_NAME
+            original = _make_fake_gram(target, units=4)
+            staged = rime_dir / "remote.gram"
+            _make_fake_gram(staged, units=8)
+            with (
+                mock.patch.object(update_gram, "find_weasel_dir", return_value=rime_dir),
+                mock.patch.object(update_gram.os, "replace", side_effect=PermissionError("model in use")),
+                mock.patch.object(update_gram.subprocess, "run") as run,
+            ):
+                with self.assertRaises(PermissionError):
+                    update_gram.replace_gram_windows(staged, target, rime_dir, deploy=False)
+                run.assert_not_called()
+                self.assertEqual(target.read_bytes(), original)
+
+    def test_matching_sha_retries_failed_deploy_without_downloading_again(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rime_dir = Path(tmp)
+            target = rime_dir / update_gram.DEFAULT_GRAM_NAME
+            model = _make_fake_gram(rime_dir / "remote.gram")
+            release = {
+                "download_url": "https://example.invalid/model.gram",
+                "sha256": hashlib.sha256(model).hexdigest(),
+            }
+            (rime_dir / "WeaselDeployer.exe").touch()
+            commands = [subprocess.CompletedProcess([], 2), subprocess.CompletedProcess([], 0)]
+            with (
+                mock.patch.object(update_gram.platform, "system", return_value="Windows"),
+                mock.patch.object(update_gram, "_read_windows_weasel_user_dir", return_value=rime_dir),
+                mock.patch.object(update_gram, "find_weasel_dir", return_value=rime_dir),
+                mock.patch.object(update_gram, "fetch_release_info", return_value=release),
+                mock.patch.object(
+                    update_gram, "download_file", side_effect=lambda _url, dest: dest.write_bytes(model)
+                ) as download,
+                mock.patch.object(update_gram.subprocess, "run", side_effect=commands) as run,
+            ):
+                args = ["--repo", "example/repo", "--no-sync"]
+                self.assertEqual(update_gram.main(args), 1)
+                self.assertEqual(target.read_bytes(), model)
+                self.assertEqual(update_gram.main(args), 0)
+                self.assertEqual(update_gram.main(args), 0)
+                self.assertEqual(run.call_count, 2)
+                download.assert_called_once()
+
+    def test_alternate_directory_and_missing_sha_fail_before_downloading(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rime_dir = Path(tmp)
+            target = rime_dir / update_gram.DEFAULT_GRAM_NAME
+            original = _make_fake_gram(target)
+            with (
+                mock.patch.object(update_gram.platform, "system", return_value="Windows"),
+                mock.patch.object(update_gram, "_read_windows_weasel_user_dir", return_value=rime_dir / "active"),
+                mock.patch.object(update_gram, "fetch_release_info", return_value={"sha256": None}) as fetch,
+                mock.patch.object(update_gram, "download_file") as download,
+            ):
+                args = ["--repo", "example/repo", "--rime-dir", str(rime_dir)]
+                self.assertEqual(update_gram.main(args), 1)
+                fetch.assert_not_called()
+                self.assertEqual(update_gram.main([*args, "--no-deploy"]), 1)
+                fetch.assert_called_once()
+                download.assert_not_called()
+                self.assertEqual(target.read_bytes(), original)
 
     def test_fetch_release_info_parses_sha256_fallback_from_manifest(self) -> None:
         release_payload = json.dumps(

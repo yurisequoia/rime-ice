@@ -61,6 +61,24 @@ class ApplyFreqCacheTests(unittest.TestCase):
         self.assertEqual(cache["补魔"], 500)
         self.assertEqual(p25, 20)
 
+    def test_rejects_incomplete_header_and_required_empty_dictionary(self) -> None:
+        target = self.root / "moegirl.dict.yaml"
+        truncated = b"---\nname: moegirl\n"
+        target.write_bytes(truncated)
+        with self.assertRaisesRegex(ValueError, "词库头"):
+            afc.apply_cache_to_targets(self.root, self.cache_path, [target.name])
+        self.assertEqual(target.read_bytes(), truncated)
+
+        empty = truncated + b"...\n# empty\n"
+        target.write_bytes(empty)
+        with self.assertRaisesRegex(ValueError, "正文"):
+            afc.apply_cache_to_targets(
+                self.root, self.cache_path, [target.name], require_entries=True
+            )
+        stats, _, _ = afc.apply_cache_to_targets(self.root, self.cache_path, [target.name])
+        self.assertEqual(stats[0].rows, 0)
+        self.assertEqual(target.read_bytes(), empty)
+
     def test_two_column_dict_hits_and_fallback(self) -> None:
         moegirl = self.root / "cn_dicts_custom" / "moegirl.dict.yaml"
         moegirl.parent.mkdir(parents=True, exist_ok=True)
