@@ -85,13 +85,13 @@ engine:
     - uniquifier                                    # 去重
 
 grammar:
-  language: wanxiang-lts-zh-hans
+  language: wanxiang-qwen14b-zh-hans
   collocation_max_length: 6
   collocation_min_length: 2
   collocation_penalty: -14
   non_collocation_penalty: -6
   weak_collocation_penalty: -100
-  rear_penalty: -18
+  rear_penalty: -20
 
 # Lua 配置: 日期、时间、星期、ISO 8601、时间戳的触发关键字
 date_translator:
