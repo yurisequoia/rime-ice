@@ -204,7 +204,11 @@ class UpdateGramTests(unittest.TestCase):
                 mock.patch.object(
                     update_gram.subprocess, "Popen", side_effect=fake_popen
                 ),
-                mock.patch.object(update_gram.time, "sleep"),
+                mock.patch.object(
+                    update_gram.time,
+                    "sleep",
+                    side_effect=lambda dt: events.append(f"sleep:{dt:g}"),
+                ),
             ):
                 restarted = update_gram.replace_gram_windows(
                     staged, target, rime_dir, deploy=True, sync=True
@@ -228,11 +232,14 @@ class UpdateGramTests(unittest.TestCase):
                 events,
                 [
                     "run:WeaselDeployer.exe:/sync",
+                    "sleep:15",
                     "replace:1",
                     "run:WeaselServer.exe:/q",
                     "replace:2",
+                    "sleep:0.15",
                     "replace:3",
                     "popen:WeaselServer.exe",
+                    "sleep:0.5",
                     "run:WeaselDeployer.exe:/deploy",
                 ],
             )
@@ -287,6 +294,7 @@ class UpdateGramTests(unittest.TestCase):
                     update_gram.subprocess, "run", side_effect=failing_sync_run
                 ),
                 mock.patch.object(update_gram.os, "replace") as mock_replace,
+                mock.patch.object(update_gram.time, "sleep") as mock_sleep,
                 mock.patch.object(sys, "stderr", stderr_buf),
             ):
                 rc = update_gram.main(
@@ -297,6 +305,7 @@ class UpdateGramTests(unittest.TestCase):
             self.assertIn("用户词库同步失败", stderr_buf.getvalue())
             self.assertEqual(target.read_bytes(), old_bytes)
             mock_replace.assert_not_called()
+            mock_sleep.assert_not_called()
             self.assertEqual(
                 run_calls, [[str(weasel_dir / "WeaselDeployer.exe"), "/sync"]]
             )
@@ -345,6 +354,7 @@ class UpdateGramTests(unittest.TestCase):
                     update_gram, "find_weasel_dir", return_value=weasel_dir
                 ),
                 mock.patch.object(update_gram.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(update_gram.time, "sleep") as mock_sleep,
             ):
                 rc_no_sync = update_gram.main(
                     [
@@ -360,6 +370,7 @@ class UpdateGramTests(unittest.TestCase):
                 self.assertEqual(
                     run_calls, [[str(weasel_dir / "WeaselDeployer.exe"), "/deploy"]]
                 )
+                mock_sleep.assert_not_called()
 
                 run_calls.clear()
                 rc_no_deploy = update_gram.main(
@@ -374,6 +385,7 @@ class UpdateGramTests(unittest.TestCase):
                 )
                 self.assertEqual(rc_no_deploy, 0)
                 self.assertEqual(run_calls, [])
+                mock_sleep.assert_not_called()
 
     def test_posix_atomic_replace_stages_same_dir_syncs_and_reloads_squirrel(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -416,6 +428,11 @@ class UpdateGramTests(unittest.TestCase):
                 ),
                 mock.patch.object(update_gram.os, "replace", side_effect=record_replace),
                 mock.patch.object(update_gram.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(
+                    update_gram.time,
+                    "sleep",
+                    side_effect=lambda dt: events.append(f"sleep:{dt:g}"),
+                ),
             ):
                 if os.name == "posix":
                     with open(target, "rb") as open_old_fh:
@@ -440,7 +457,8 @@ class UpdateGramTests(unittest.TestCase):
                 [[str(fake_squirrel), "--sync"], [str(fake_squirrel), "--reload"]],
             )
             self.assertEqual(
-                events, ["run:--sync", "wait_sync", "replace", "run:--reload"]
+                events,
+                ["run:--sync", "wait_sync", "sleep:15", "replace", "run:--reload"],
             )
 
     def test_wait_for_squirrel_sync_waits_for_sync_dir_write_and_quiet_period(self) -> None:
@@ -579,6 +597,29 @@ class UpdateGramTests(unittest.TestCase):
                 self.assertEqual(update_gram.main(args), 0)
                 self.assertEqual(run.call_count, 2)
                 download.assert_called_once()
+
+    def test_retry_deployment_sleeps_after_sync_before_deploy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            rime_dir = Path(tmp)
+            (rime_dir / "WeaselDeployer.exe").touch()
+            events: list[str] = []
+
+            def fake_run(cmd, **_kwargs):
+                events.append(f"run:{' '.join(str(c) for c in cmd[1:])}")
+                return subprocess.CompletedProcess(cmd, 0)
+
+            with (
+                mock.patch.object(update_gram, "find_weasel_dir", return_value=rime_dir),
+                mock.patch.object(update_gram.subprocess, "run", side_effect=fake_run),
+                mock.patch.object(
+                    update_gram.time,
+                    "sleep",
+                    side_effect=lambda dt: events.append(f"sleep:{dt:g}"),
+                ),
+            ):
+                update_gram._retry_deployment(rime_dir, "Windows", sync=True)
+
+            self.assertEqual(events, ["run:/sync", "sleep:15", "run:/deploy"])
 
     def test_alternate_directory_and_missing_sha_fail_before_downloading(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

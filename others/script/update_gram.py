@@ -42,6 +42,7 @@ GRAM_HEADER_STRUCT = struct.Struct("<32sIIi")
 
 SQUIRREL_BIN = Path("/Library/Input Methods/Squirrel.app/Contents/MacOS/Squirrel")
 SCHEMA_FILES = ("rime_ice.schema.yaml", "double_pinyin_flypy.schema.yaml")
+POST_SYNC_DELAY_SEC = 15
 
 WINDOWS_LOCK_WINERRORS = {5, 32, 1224}
 LOCK_ERRNOS = {errno.EACCES, errno.EPERM, errno.EBUSY}
@@ -539,6 +540,13 @@ def _resolve_weasel_deployer(weasel_dir: Path | None) -> str | None:
     return None
 
 
+def _wait_after_sync(delay_sec: float = POST_SYNC_DELAY_SEC) -> None:
+    if delay_sec <= 0:
+        return
+    print(f"用户词库同步完成，等待 {delay_sec:g} 秒后再继续部署...")
+    time.sleep(delay_sec)
+
+
 def sync_user_data_windows(
     rime_dir: Path,
     weasel_dir: Path | None = None,
@@ -566,6 +574,7 @@ def sync_user_data_windows(
             "已中止后续替换与重新部署以保护用户词库。"
         )
     _require_updated_snapshots(baseline)
+    _wait_after_sync()
 
 
 def _run_weasel_deploy(weasel_dir: Path | None) -> None:
@@ -680,6 +689,7 @@ def sync_user_data_posix(
                 "已中止后续替换与重新加载。"
             )
         wait_for_squirrel_sync(baseline)
+        _wait_after_sync()
         return
 
     gdbus = shutil.which("gdbus")
@@ -707,6 +717,8 @@ def sync_user_data_posix(
                 f"提示: 调用 Fcitx5 Rime SyncUserData 未成功（退出码 {proc.returncode}），"
                 "将继续完成替换。"
             )
+        else:
+            _wait_after_sync()
     else:
         print("提示: 当前 Linux 环境未检测到自动同步接口，请按需手动同步用户词库。")
 
